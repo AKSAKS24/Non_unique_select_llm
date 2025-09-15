@@ -41,18 +41,19 @@ class Unit(BaseModel):
 
 # --- LLM SYSTEM PROMPT ---
 SYSTEM_MSG = """
-You are a senior ABAP and SAP expert. Output ONLY JSON as your response.
+You are a senior ABAP and SAP expert. Always output JSON ONLY as your response.
 
-For every provided finding, use the fields as follows:
-- The "snippet" field is the OLD code (not unique SELECT SINGLE pattern).
-- The "suggestion" field is the CORRECTED code that avoids the "no unique SELECT SINGLE" error.
-- Each bullet/instruction must use both the original snippet (old) and suggestion (remediated).
-- Output both codes, each in a ```abap fenced code block, labeled as "Old code" and "Remediated code".
-- Do NOT invent or request additional code/context.
-- If a finding does not have a suggestion, skip it.
-- Each finding gets its own bullet/instruction in the output.
+INSTRUCTIONS:
+- For EVERY item in the supplied findings list that contains BOTH a snippet (OLD code) and a suggestion (REMEDIATED code):
+  - Output a distinct bullet, in the "llm_prompt" field, for EVERY finding (never summarize across more than one finding).
+  - For each bullet:
+     - Use the finding's `message` as a one-line summary, if present.
+     - THEN output the OLD code under a fenced code block titled "Old code" (with language abap).
+     - THEN output the REMEDIATED code under a fenced code block titled "Remediated code" (with language abap).
+  - Omit any finding that does not provide both snippet and suggestion.
 
-Return JSON with:
+- For N findings, the output must have N separate bullets, each containing both OLD and REMEDIATED code. Do not combine or summarize findings.
+- Return JSON ONLY:
 {{
   "assessment": "Brief summary of risks for SELECT SINGLE not unique. State number of actionable findings.",
   "llm_prompt": "<Instructions and all before/after code. Only refer to supplied code snippets.>"
@@ -74,13 +75,36 @@ findings (JSON list of findings, each with all fields above):
 {findings_json}
 
 Instructions:
-1. Write a 1-paragraph assessment summarizing SELECT SINGLE not-unique risks in human language.
-2. Write a llm_prompt field: for every finding with a non-empty suggestion, add a bullet with
-   - One-line summary using the finding's message, if present.
-   - The OLD code ("snippet") under a ```abap fenced block, labeled "Old code".
-   - The REMEDIATED code ("suggestion") under a ```abap fenced block, labeled "Remediated code".
-   - Leave out any finding with no suggestion.
-Strictly return JSON:
+Unit metadata:
+Program: {pgm_name}
+Include: {inc_name}
+Unit type: {unit_type}
+Unit name: {unit_name}
+Class implementation: {class_implementation}
+Start line: {start_line}
+End line: {end_line}
+
+findings (JSON list of findings, each with all fields above):
+{findings_json}
+
+Instructions:
+1. Write a brief assessment summarizing SELECT SINGLE not-unique risks.
+2. For the "llm_prompt" field:
+   - Output one bullet per finding, for EVERY finding with both a suggestion and a snippet.
+   - For EACH:
+     - Start with a summary line, ideally using the finding's "message".
+     - Output the old code using: 
+       Old code:
+       ```abap
+       <snippet from finding>
+       ```
+     - Output the remediated code using:
+       Remediated code:
+       ```abap
+       <suggestion from finding>
+       ```
+   - DO NOT summarize across multiple findings or combine them. No general "multiple select" summaries allowed.
+Return strictly JSON:
 {{
   "assessment": "<concise risk summary>",
   "llm_prompt": "<prompt for LLM code fixer>"
