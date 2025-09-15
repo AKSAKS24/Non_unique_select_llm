@@ -37,23 +37,43 @@ class Unit(BaseModel):
     code: Optional[str] = ""
     findings: Optional[List[Finding]] = Field(default_factory=list)
 
-# --- NEW, STRONG SYSTEM PROMPT ---
+# -------- Escaper ---------
+def json_escape_string_for_llm(s: str) -> str:
+    """ Escape all backslash, quotes, newlines for safe LLM-JSON embedding """
+    if not s:
+        return ""
+    s = s.replace("\\", "\\\\")
+    s = s.replace("\"", "\\\"")
+    s = s.replace("\n", "\\n")
+    return s
+
+# -------- Prompts ---------
 SYSTEM_MSG = """
-You are a senior ABAP and SAP expert. You ALWAYS output VALID JSON as your response.
+You are a senior ABAP and SAP expert. You ALWAYS output a single flat JSON object with exactly these two fields: "assessment" and "llm_prompt".
 
-STRICT INSTRUCTIONS:
-- For EVERY code snippet or suggestion in your JSON fields, inside string values:
-    - All newline characters must appear as two characters '\\'+'n' (as: \\\\n). Do NOT use a real newline.
-    - All double quotes in string values must be escaped as \\"
-    - DO NOT use literal newlines, triple-backticks, or unescaped double quotes anywhere inside a JSON string value
-    - DO NOT use literal (bare) line breaks in any part of output!
-- Your output MUST be a single, flat JSON object like this:
-
+Instructions:
+- "assessment": a brief summary, in plain English, of all the types of code transformations/remediations from the findings. Do not include any ABAP code here; just describe what you changed and why (e.g. "Converted 3 non-optimized SELECT statements to safe SELECT SINGLE patterns.").
+- "llm_prompt": a single Markdown block, as a JSON-escaped string, listing for EACH finding:
+  - the [finding message]
+  - Old code:
+    ```abap
+    [snippet]
+    ```
+  - Remediated code:
+    ```abap
+    [suggestion]
+    ```
+- Every finding that has both suggestion and snippet must be included.
+- All output must be JSON-escaped:
+    - No literal newlines, use \\n
+    - No raw quotes, use \\"
+    - Backslash as \\\\
+- 'llm_prompt' is a flat string, not a JSON array.
+- Sample output:
 {{
-  "llm_prompt": "- Finding 1 message\\\\nOld code:\\\\n```abap\\\\nSELECT ...\\\\n```\\\\nRemediated code:\\\\n```abap\\\\nSELECT ...\\\\n```\\\\n\\\\n- Finding 2 message\\\\nOld code:\\\\n```abap\\\\nSELECT ...\\\\n```\\\\nRemediated code:\\\\n```abap\\\\nSELECT ...\\\\n```"
+  "assessment": "Transformed all SELECT statements to SELECT SINGLE according to best practices.",
+  "llm_prompt": "- [Finding A description]\\\\nOld code:\\\\n```abap\\\\n...\\\\n```\\\\nRemediated code:\\\\n```abap\\\\n...\\\\n```\\\\n\\\\n- ..."
 }}
-
-- The value of "llm_prompt" MUST be a FLAT ESCAPED STRING containing a bullet list, NOT a JSON-encoded object, not a list, not containing nested JSON, and **must NEVER contain any field named assessment, findings, or message at the top level inside itself**. Strictly follow the example above.
 """.strip()
 
 USER_TEMPLATE = """
@@ -70,35 +90,36 @@ findings (json):
 {findings_json}
 
 Instructions:
-- For EACH finding where BOTH snippet and suggestion are present and non-empty:
-  - Write in "llm_prompt":
-    - [message]
-    - Old code:
-      ```abap
-      [snippet]
-      ```
-    - Remediated code:
-      ```abap
-      [suggestion]
-      ```
-- Separate each finding/block with TWO newlines.
-- Every snippet+suggestion MUST be present. DO NOT OMIT any finding with both fields present.
-- For every value in "llm_prompt", use JSON escaping! (Newlines as \\n, quotes as \\")
-- Do NOT include JSON or keys like "assessment", "message", or "findings" inside the llm_prompt string value; it must be a flat Markdown-like string exactly as shown in the system message example.
-- Output is a JSON object:
+- For EACH finding with both non-empty snippet and suggestion:
+    - Render a section in 'llm_prompt' as described above.
+    - Separate findings/blocks with two escaped newlines (\\\\n\\\\n).
+    - Snippet and suggestion must be included and properly JSON-escaped (\\n for newlines, \\" for quotes, \\\\ for backslash).
+- Output only a single flat object with two fields:
+    - "assessment" (summary, plain English, no code)
+    - "llm_prompt" (full Markdown listing, as a JSON-escaped string)
+- Your output must look like:
 {{
-  "llm_prompt": "..." 
+  "assessment": "summary...",
+  "llm_prompt": "- ..." 
 }}
 """.strip()
 
+
 def build_prompt(unit: Unit, relevant_findings: List[Finding]) -> Dict[str, str]:
-    findings_json = json.dumps([f.model_dump() for f in relevant_findings], ensure_ascii=False, indent=2)
+    findings_dicts = []
+    for f in relevant_findings:
+        fd = f.model_dump()
+        for k in ["snippet", "suggestion", "message"]:
+            if fd.get(k):
+                fd[k] = json_escape_string_for_llm(fd[k])
+        findings_dicts.append(fd)
+    findings_json = json.dumps(findings_dicts, ensure_ascii=False, indent=2)
     prompt_content = USER_TEMPLATE.format(
-        pgm_name=unit.pgm_name,
-        inc_name=unit.inc_name,
-        unit_type=unit.type,
-        unit_name=unit.name or "",
-        class_implementation=unit.class_implementation or "",
+        pgm_name=json_escape_string_for_llm(unit.pgm_name),
+        inc_name=json_escape_string_for_llm(unit.inc_name),
+        unit_type=json_escape_string_for_llm(unit.type),
+        unit_name=json_escape_string_for_llm(unit.name or ""),
+        class_implementation=json_escape_string_for_llm(unit.class_implementation or ""),
         start_line=unit.start_line or 0,
         end_line=unit.end_line or 0,
         findings_json=findings_json,
@@ -129,9 +150,14 @@ def call_llm(system_msg: str, user_prompt: str) -> Dict[str, Any]:
         resp.raise_for_status()
         msg = resp.json()["choices"][0]["message"]
         content = msg.get("content") or ""
-        return json.loads(content)
+        result = json.loads(content)
+        # Defensive: Ensure both fields are present
+        if "assessment" not in result:
+            result["assessment"] = "[LLM did not provide assessment summary]"
+        if "llm_prompt" not in result:
+            result["llm_prompt"] = "[LLM did not provide llm_prompt]"
+        return result
     except Exception as e:
-        # Defensive: log the raw model output, if any
         content = locals().get('content', None)
         return {
             "assessment": f"[LLM error: {e}]",
