@@ -54,10 +54,10 @@ For every provided finding that has BOTH a 'snippet' (old code) and a 'suggestio
 - If there are no findings with both a snippet and suggestion, return an empty string for 'llm_prompt'.
 The 'assessment' field must briefly mention SELECT SINGLE risk and the *number* of actionable findings detected.
 Always return as:
-{ {}
+{{
   "assessment": "...",
   "llm_prompt": "..."
-} }
+}}
 """
 
 USER_TEMPLATE = """
@@ -88,10 +88,11 @@ Instructions:
 - llm_prompt must be a valid JSON string (escape newlines as \\n in JSON; do NOT use literal newlines).
 - Do NOT combine/mix findings; never leave out any finding with snippet+suggestion.
 Return JSON:
-{ {
+Always return as:
+{{
   "assessment": "...",
   "llm_prompt": "..."
-} }
+}}
 """.strip()
 
 def build_prompt(unit: Unit, relevant_findings: List[Finding]) -> Dict[str, str]:
