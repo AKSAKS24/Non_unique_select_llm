@@ -40,19 +40,21 @@ class Unit(BaseModel):
 # --- Strong LLM Prompt:
 
 SYSTEM_MSG = """
-You are a senior ABAP and SAP expert and must output ONLY JSON.
-For every provided finding that has BOTH a 'snippet' (old code) and a 'suggestion' (remediated code):
-- In the llm_prompt field (a single JSON STRING), output ONE bullet per finding containing in this order:
-  - The finding's message (as a summary line)
-  - Old code: (on its own line)
-    A fenced abap code block (```abap ... ```) with the snippet
-  - Remediated code: (on its own line)
-    A fenced abap code block (```abap ... ```) with the suggestion
-  - Preserve code formatting.
-- All bullets must be included in the same string for llm_prompt, separated by double newlines.
-- To ensure valid JSON, NEVER insert literal unescaped newlines or quotes in a JSON string value: escape all newlines as '\\n' and all " as \\".
-- If there are no findings with both a snippet and suggestion, return an empty string for 'llm_prompt'.
-The 'assessment' field must briefly mention SELECT SINGLE risk and the *number* of actionable findings detected.
+
+You are a senior ABAP and SAP expert. Output ONLY JSON as your response.
+
+!!! VERY IMPORTANT INSTRUCTION !!!
+For every code snippet/suggestion field in your returned JSON:
+- All newline characters **inside string values** must appear as two characters '\\'+'n' (like: \\\\n), *not* as literal unescaped newlines.
+- Escape all double quotes in string values as \\"
+- Never use literal (bare) newlines or triple-backticks or unescaped double quotes inside any JSON string value.
+Your sample return should look visually like this (EXACTLY this string escaping pattern):
+"""
+{
+  "assessment": "2 actionable findings found.",
+  "llm_prompt": "- First finding message\\\\nOld code:\\\\n```abap\\\\nSELECT ...\\\\n```\\\\nRemediated code:\\\\n```abap\\\\nSELECT ...\\\\n```\\\\n\\\\n- Second finding message\\\\nOld code:\\\\n```abap\\\\nSELECT ...\\\\n```\\\\nRemediated code:\\\\n```abap\\\\nSELECT ...\\\\n```"
+}
+"""
 Always return as:
 {{
   "assessment": "...",
