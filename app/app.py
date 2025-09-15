@@ -5,7 +5,6 @@ from typing import List, Optional, Dict, Any
 import requests
 import json
 
-
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 OPENAI_API_BASE = os.getenv("OPENAI_API_BASE", "https://api.openai.com/v1")
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4.1-nano")
@@ -51,7 +50,6 @@ STRICT INSTRUCTIONS:
 - Your output MUST be a single, flat JSON object like this:
 
 {{
-  "assessment": "Short summary of the findings.",
   "llm_prompt": "- Finding 1 message\\\\nOld code:\\\\n```abap\\\\nSELECT ...\\\\n```\\\\nRemediated code:\\\\n```abap\\\\nSELECT ...\\\\n```\\\\n\\\\n- Finding 2 message\\\\nOld code:\\\\n```abap\\\\nSELECT ...\\\\n```\\\\nRemediated code:\\\\n```abap\\\\nSELECT ...\\\\n```"
 }}
 
