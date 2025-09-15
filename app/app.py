@@ -87,7 +87,6 @@ Instructions:
 - Do NOT include JSON or keys like "assessment", "message", or "findings" inside the llm_prompt string value; it must be a flat Markdown-like string exactly as shown in the system message example.
 - Output is a JSON object:
 {{
-  "assessment": "...",
   "llm_prompt": "..." 
 }}
 """.strip()
