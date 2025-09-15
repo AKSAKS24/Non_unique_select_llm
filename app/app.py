@@ -5,6 +5,7 @@ from typing import List, Optional, Dict, Any
 import requests
 import json
 
+
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 OPENAI_API_BASE = os.getenv("OPENAI_API_BASE", "https://api.openai.com/v1")
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4.1-nano")
@@ -37,30 +38,30 @@ class Unit(BaseModel):
     code: Optional[str] = ""
     findings: Optional[List[Finding]] = Field(default_factory=list)
 
-# --- Strong LLM Prompt:
-
+# --- NEW, STRONG SYSTEM PROMPT ---
 SYSTEM_MSG = """
+You are a senior ABAP and SAP expert. You ALWAYS output VALID JSON as your response.
 
-You are a senior ABAP and SAP expert. Output ONLY JSON as your response.
+STRICT INSTRUCTIONS:
+- For EVERY code snippet or suggestion in your JSON fields, inside string values:
+    - All newline characters must appear as two characters '\\'+'n' (as: \\\\n). Do NOT use a real newline.
+    - All double quotes in string values must be escaped as \\"
+    - DO NOT use literal newlines, triple-backticks, or unescaped double quotes anywhere inside a JSON string value
+    - DO NOT use literal (bare) line breaks in any part of output!
 
-!!! VERY IMPORTANT INSTRUCTION !!!
-For every code snippet/suggestion field in your returned JSON:
-- All newline characters **inside string values** must appear as two characters '\\'+'n' (like: \\\\n), *not* as literal unescaped newlines.
-- Escape all double quotes in string values as \\"
-- Never use literal (bare) newlines or triple-backticks or unescaped double quotes inside any JSON string value.
-Your sample return should look visually like this (EXACTLY this string escaping pattern):
-"""
+Your output MUST look like this (exact escaping!):
+
 {
   "assessment": "2 actionable findings found.",
-  "llm_prompt": "- First finding message\\\\nOld code:\\\\n```abap\\\\nSELECT ...\\\\n```\\\\nRemediated code:\\\\n```abap\\\\nSELECT ...\\\\n```\\\\n\\\\n- Second finding message\\\\nOld code:\\\\n```abap\\\\nSELECT ...\\\\n```\\\\nRemediated code:\\\\n```abap\\\\nSELECT ...\\\\n```"
+  "llm_prompt": "- First finding message\\\\nOld code:\\\\n```abap\\\\nSELECT something FROM table INTO ...;\\\\n```\\\\nRemediated code:\\\\n```abap\\\\nSELECT SINGLE something FROM table INTO ...;\\\\n```\\\\n\\\\n- Second finding message\\\\nOld code:\\\\n```abap\\\\nSELECT another FROM ...\\\\n```\\\\nRemediated code:\\\\n```abap\\\\nSELECT SINGLE another FROM ...\\\\n```"
 }
-"""
-Always return as:
+
+Always respond as :
 {{
   "assessment": "...",
-  "llm_prompt": "..."
+  "llm_prompt": "..." 
 }}
-"""
+""".strip()
 
 USER_TEMPLATE = """
 Unit:
@@ -76,24 +77,24 @@ findings (json):
 {findings_json}
 
 Instructions:
-- For each actionable finding (both snippet and suggestion present) emit:
-  - [message]
-  - Old code:
-    ```abap
-    [snippet]
-    ```
-  - Remediated code:
-    ```abap
-    [suggestion]
-    ```
-- Separate bullets with two newlines.
-- llm_prompt must be a valid JSON string (escape newlines as \\n in JSON; do NOT use literal newlines).
-- Do NOT combine/mix findings; never leave out any finding with snippet+suggestion.
-Return JSON:
-Always return as:
+- For EACH finding where BOTH snippet and suggestion are present and non-empty:
+  - Write:
+    - [message]
+    - Old code:
+      ```abap
+      [snippet]
+      ```
+    - Remediated code:
+      ```abap
+      [suggestion]
+      ```
+- Separate each finding/block with TWO newlines.
+- Every snippet+suggestion MUST be present. DO NOT OMIT any finding with both fields present.
+- For every value in "llm_prompt", use JSON escaping! (Newlines as \\n, quotes as \\")
+- Output is a JSON object:
 {{
   "assessment": "...",
-  "llm_prompt": "..."
+  "llm_prompt": "..." 
 }}
 """.strip()
 
@@ -130,16 +131,18 @@ def call_llm(system_msg: str, user_prompt: str) -> Dict[str, Any]:
         "Authorization": f"Bearer {OPENAI_API_KEY}",
         "Content-Type": "application/json"
     }
-    resp = requests.post(url, json=payload, headers=headers, timeout=60)
     try:
+        resp = requests.post(url, json=payload, headers=headers, timeout=60)
         resp.raise_for_status()
         msg = resp.json()["choices"][0]["message"]
         content = msg.get("content") or ""
         return json.loads(content)
     except Exception as e:
+        # Defensive: log the raw model output, if any
+        content = locals().get('content', None)
         return {
             "assessment": f"[LLM error: {e}]",
-            "llm_prompt": ""
+            "llm_prompt": f"[RAW LLM output: {content}]"
         }
 
 def llm_assess_and_prompt_llm(unit: Unit) -> Dict[str, str]:
