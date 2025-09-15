@@ -135,7 +135,7 @@ def call_llm(system_msg: str, user_prompt: str) -> Dict[str, Any]:
         content = locals().get('content', None)
         return {
             "assessment": f"[LLM error: {e}]",
-            "llm_prompt": f"[RAW LLM output: {content}]"
+            "llm_prompt": f"[{content}]"
         }
 
 def llm_assess_and_prompt_llm(unit: Unit) -> Dict[str, str]:
