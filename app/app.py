@@ -12,7 +12,7 @@ OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4.1-nano")
 if not OPENAI_API_KEY:
     raise RuntimeError("OPENAI_API_KEY is required.")
 
-app = FastAPI(title="SELECT SINGLE Remediator")
+app = FastAPI(title="ABAP Remediator")
 
 class Finding(BaseModel):
     pgm_name: Optional[str] = None
@@ -37,7 +37,6 @@ class Unit(BaseModel):
     code: Optional[str] = ""
     findings: Optional[List[Finding]] = Field(default_factory=list)
 
-# -------- Escaper ---------
 def json_escape_string_for_llm(s: str) -> str:
     """ Escape all backslash, quotes, newlines for safe LLM-JSON embedding """
     if not s:
@@ -47,7 +46,6 @@ def json_escape_string_for_llm(s: str) -> str:
     s = s.replace("\n", "\\n")
     return s
 
-# -------- Prompts ---------
 SYSTEM_MSG = """
 You are a senior ABAP and SAP expert. You ALWAYS output a single flat JSON object with exactly these two fields: "assessment" and "llm_prompt".
 
@@ -74,7 +72,7 @@ Instructions:
   "assessment": "Transformed all SELECT statements to SELECT SINGLE according to best practices.",
   "llm_prompt": "- [Finding A description]\\\\nOld code:\\\\n```abap\\\\n...\\\\n```\\\\nRemediated code:\\\\n```abap\\\\n...\\\\n```\\\\n\\\\n- ..."
 }}
-""".strip()
+"""
 
 USER_TEMPLATE = """
 Unit:
@@ -102,13 +100,13 @@ Instructions:
   "assessment": "summary...",
   "llm_prompt": "- ..." 
 }}
-""".strip()
-
+"""
 
 def build_prompt(unit: Unit, relevant_findings: List[Finding]) -> Dict[str, str]:
     findings_dicts = []
     for f in relevant_findings:
         fd = f.model_dump()
+        # Escape for JSON embedding in LLM instruction (avoid any broken LLM JSON output due to code content)
         for k in ["snippet", "suggestion", "message"]:
             if fd.get(k):
                 fd[k] = json_escape_string_for_llm(fd[k])
@@ -138,7 +136,7 @@ def call_llm(system_msg: str, user_prompt: str) -> Dict[str, Any]:
             {"role": "user", "content": user_prompt}
         ],
         "temperature": 0.0,
-        "max_tokens": 1024,
+        "max_tokens": 2048,
         "response_format": {"type": "json_object"}
     }
     headers = {
@@ -146,7 +144,7 @@ def call_llm(system_msg: str, user_prompt: str) -> Dict[str, Any]:
         "Content-Type": "application/json"
     }
     try:
-        resp = requests.post(url, json=payload, headers=headers, timeout=60)
+        resp = requests.post(url, json=payload, headers=headers, timeout=90)
         resp.raise_for_status()
         msg = resp.json()["choices"][0]["message"]
         content = msg.get("content") or ""
@@ -164,7 +162,7 @@ def call_llm(system_msg: str, user_prompt: str) -> Dict[str, Any]:
             "llm_prompt": f"[{content}]"
         }
 
-def llm_assess_and_prompt_llm(unit: Unit) -> Dict[str, str]:
+def llm_assess_and_prompt_llm(unit: Unit) -> Optional[Dict[str, str]]:
     relevant_findings = [
         f for f in (unit.findings or [])
         if f.suggestion and f.suggestion.strip() and f.snippet and f.snippet.strip()
@@ -173,7 +171,11 @@ def llm_assess_and_prompt_llm(unit: Unit) -> Dict[str, str]:
         return None
     prompt_obj = build_prompt(unit, relevant_findings)
     llm_result = call_llm(prompt_obj["system"], prompt_obj["user"])
-    return llm_result
+    # Ensure both assessment and llm_prompt present for every result
+    return {
+        "assessment": llm_result.get("assessment", ""),
+        "llm_prompt": llm_result.get("llm_prompt", "")
+    }
 
 @app.post("/assess-select-single")
 async def assess_select_single(units: List[Unit]) -> List[Dict[str, Any]]:
