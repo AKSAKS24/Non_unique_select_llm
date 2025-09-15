@@ -49,13 +49,6 @@ STRICT INSTRUCTIONS:
     - DO NOT use literal newlines, triple-backticks, or unescaped double quotes anywhere inside a JSON string value
     - DO NOT use literal (bare) line breaks in any part of output!
 
-Your output MUST look like this (exact escaping!):
-
-{
-  "assessment": "2 actionable findings found.",
-  "llm_prompt": "- First finding message\\\\nOld code:\\\\n```abap\\\\nSELECT something FROM table INTO ...;\\\\n```\\\\nRemediated code:\\\\n```abap\\\\nSELECT SINGLE something FROM table INTO ...;\\\\n```\\\\n\\\\n- Second finding message\\\\nOld code:\\\\n```abap\\\\nSELECT another FROM ...\\\\n```\\\\nRemediated code:\\\\n```abap\\\\nSELECT SINGLE another FROM ...\\\\n```"
-}
-
 Always respond as :
 {{
   "assessment": "...",
