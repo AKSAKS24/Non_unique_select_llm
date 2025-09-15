@@ -48,12 +48,14 @@ STRICT INSTRUCTIONS:
     - All double quotes in string values must be escaped as \\"
     - DO NOT use literal newlines, triple-backticks, or unescaped double quotes anywhere inside a JSON string value
     - DO NOT use literal (bare) line breaks in any part of output!
+- Your output MUST be a single, flat JSON object like this:
 
-Always respond as :
 {{
-  "assessment": "...",
-  "llm_prompt": "..." 
+  "assessment": "Short summary of the findings.",
+  "llm_prompt": "- Finding 1 message\\\\nOld code:\\\\n```abap\\\\nSELECT ...\\\\n```\\\\nRemediated code:\\\\n```abap\\\\nSELECT ...\\\\n```\\\\n\\\\n- Finding 2 message\\\\nOld code:\\\\n```abap\\\\nSELECT ...\\\\n```\\\\nRemediated code:\\\\n```abap\\\\nSELECT ...\\\\n```"
 }}
+
+- The value of "llm_prompt" MUST be a FLAT ESCAPED STRING containing a bullet list, NOT a JSON-encoded object, not a list, not containing nested JSON, and **must NEVER contain any field named assessment, findings, or message at the top level inside itself**. Strictly follow the example above.
 """.strip()
 
 USER_TEMPLATE = """
@@ -71,7 +73,7 @@ findings (json):
 
 Instructions:
 - For EACH finding where BOTH snippet and suggestion are present and non-empty:
-  - Write:
+  - Write in "llm_prompt":
     - [message]
     - Old code:
       ```abap
@@ -84,6 +86,7 @@ Instructions:
 - Separate each finding/block with TWO newlines.
 - Every snippet+suggestion MUST be present. DO NOT OMIT any finding with both fields present.
 - For every value in "llm_prompt", use JSON escaping! (Newlines as \\n, quotes as \\")
+- Do NOT include JSON or keys like "assessment", "message", or "findings" inside the llm_prompt string value; it must be a flat Markdown-like string exactly as shown in the system message example.
 - Output is a JSON object:
 {{
   "assessment": "...",
