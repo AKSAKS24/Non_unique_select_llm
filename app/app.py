@@ -136,7 +136,7 @@ def call_llm(system_msg: str, user_prompt: str) -> Dict[str, Any]:
             {"role": "user", "content": user_prompt}
         ],
         "temperature": 0.0,
-        "max_tokens": 2048,
+        "max_tokens": 15000,
         "response_format": {"type": "json_object"}
     }
     headers = {
