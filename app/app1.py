@@ -5,7 +5,6 @@ from typing import List, Optional, Dict, Any
 import requests
 import json
 
-
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 OPENAI_API_BASE = os.getenv("OPENAI_API_BASE", "https://api.openai.com/v1")
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4.1-nano")
@@ -52,7 +51,8 @@ You are a senior ABAP and SAP expert. You ALWAYS output a single flat JSON objec
 
 Instructions:
 - "assessment": a brief summary, in plain English, of all the types of code transformations/remediations from the findings. Do not include any ABAP code here; just describe what you changed and why (e.g. "Converted 3 non-optimized SELECT statements to safe SELECT SINGLE patterns.").
-- "llm_prompt": a single Markdown block, as a JSON-escaped string, listing for EACH finding ONLY:
+- "llm_prompt": a single Markdown block, as a JSON-escaped string, listing for EACH finding:
+  - the [finding message]
   - Old code:
     ```abap
     [snippet]
@@ -64,14 +64,14 @@ Instructions:
 - Every finding that has both suggestion and snippet must be included.
 - All output must be JSON-escaped:
     - No literal newlines, use \\n
-    - No raw quotes, use \\" 
+    - No raw quotes, use \\"
     - Backslash as \\\\
 - 'llm_prompt' is a flat string, not a JSON array.
 - Sample output:
-{
+{{
   "assessment": "Transformed all SELECT statements to SELECT SINGLE according to best practices.",
-  "llm_prompt": "Old code:\\\\n```abap\\\\n...\\\\n```\\\\nRemediated code:\\\\n```abap\\\\n...\\\\n```\\\\n\\\\nOld code:..."
-}
+  "llm_prompt": "- [Finding A description]\\\\nOld code:\\\\n```abap\\\\n...\\\\n```\\\\nRemediated code:\\\\n```abap\\\\n...\\\\n```\\\\n\\\\n- ..."
+}}
 """
 
 USER_TEMPLATE = """
@@ -89,24 +89,16 @@ findings (json):
 
 Instructions:
 - For EACH finding with both non-empty snippet and suggestion:
-    - Only output in 'llm_prompt':
-      Old code:
-      ```abap
-      [snippet]
-      ```
-      Remediated code:
-      ```abap
-      [suggestion]
-      ```
+    - Render a section in 'llm_prompt' as described above.
     - Separate findings/blocks with two escaped newlines (\\\\n\\\\n).
     - Snippet and suggestion must be included and properly JSON-escaped (\\n for newlines, \\" for quotes, \\\\ for backslash).
-- Output a single flat object with two fields:
+- Output only a single flat object with two fields:
     - "assessment" (summary, plain English, no code)
     - "llm_prompt" (full Markdown listing, as a JSON-escaped string)
-- Example:
+- Your output must look like:
 {{
   "assessment": "summary...",
-  "llm_prompt": "Old code:\\\\n```abap\\\\n...\\\\n```\\\\nRemediated code:\\\\n```abap\\\\n...\\\\n```"
+  "llm_prompt": "- ..." 
 }}
 """
 
@@ -115,7 +107,7 @@ def build_prompt(unit: Unit, relevant_findings: List[Finding]) -> Dict[str, str]
     for f in relevant_findings:
         fd = f.model_dump()
         # Escape for JSON embedding in LLM instruction (avoid any broken LLM JSON output due to code content)
-        for k in ["snippet", "suggestion"]:
+        for k in ["snippet", "suggestion", "message"]:
             if fd.get(k):
                 fd[k] = json_escape_string_for_llm(fd[k])
         findings_dicts.append(fd)
@@ -152,7 +144,7 @@ def call_llm(system_msg: str, user_prompt: str) -> Dict[str, Any]:
         "Content-Type": "application/json"
     }
     try:
-        resp = requests.post(url, json=payload, headers=headers, timeout=360)
+        resp = requests.post(url, json=payload, headers=headers, timeout=90)
         resp.raise_for_status()
         msg = resp.json()["choices"][0]["message"]
         content = msg.get("content") or ""
